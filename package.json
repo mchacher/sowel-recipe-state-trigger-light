@@ -1,0 +1,18 @@
+{
+  "name": "sowel-recipe-state-trigger-light",
+  "version": "0.1.0",
+  "description": "Sowel recipe: turn lights on for a fixed duration when an equipment's state changes to a target value",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.1.9"
+  },
+  "license": "AGPL-3.0"
+}
