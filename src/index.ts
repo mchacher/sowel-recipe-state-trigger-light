@@ -67,6 +67,7 @@ interface RecipeSlotDef {
     min?: number;
     max?: number;
     crossZone?: boolean;
+    includeDescendants?: boolean;
   };
   group?: string;
 }
@@ -167,7 +168,9 @@ export function createRecipe(): RecipeDefinition {
         type: "equipment",
         required: true,
         list: true,
-        constraints: { equipmentType: "light_onoff" },
+        // includeDescendants: a recipe at zone "Maison" should be usable
+        // even if its only lights live in child zones (Garage, Allée…).
+        constraints: { equipmentType: "light_onoff", includeDescendants: true },
       },
       {
         id: "duration",
