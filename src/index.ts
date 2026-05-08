@@ -66,6 +66,7 @@ interface RecipeSlotDef {
     equipmentType?: string | string[];
     min?: number;
     max?: number;
+    crossZone?: boolean;
   };
   group?: string;
 }
@@ -146,6 +147,10 @@ export function createRecipe(): RecipeDefinition {
         description: "Equipment whose `state` alias is watched",
         type: "equipment",
         required: true,
+        // The trigger commonly lives in a zone different from the lights
+        // (gate at the entrance, lights in the driveway). crossZone tells
+        // the recipe form to show equipments from any zone.
+        constraints: { crossZone: true },
       },
       {
         id: "stateValue",

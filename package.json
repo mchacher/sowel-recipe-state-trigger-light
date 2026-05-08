@@ -1,6 +1,6 @@
 {
   "name": "sowel-recipe-state-trigger-light",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Sowel recipe: turn lights on for a fixed duration when an equipment's state changes to a target value",
   "type": "module",
   "main": "dist/index.js",
