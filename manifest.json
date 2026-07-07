@@ -2,7 +2,7 @@
   "id": "state-trigger-light",
   "type": "recipe",
   "name": "State-Triggered Light",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Turn lights on for a fixed duration when a watched equipment's state changes to a target value (e.g. gate → open at night).",
   "icon": "Bell",
   "repo": "mchacher/sowel-recipe-state-trigger-light",
