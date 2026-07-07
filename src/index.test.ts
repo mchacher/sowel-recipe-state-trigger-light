@@ -16,6 +16,7 @@ function makeCtx(opts: {
   isDaylight?: boolean | null;
   lightOn?: boolean;
   triggerHasState?: boolean;
+  triggerState?: string;
 }) {
   const listeners: Listener[] = [];
   const stateMap = new Map<string, unknown>();
@@ -57,7 +58,11 @@ function makeCtx(opts: {
         }
         return null;
       },
-      getDataBindingsWithValues: vi.fn(() => []),
+      getDataBindingsWithValues: vi.fn((id: string) =>
+        id === "trigger-1" && opts.triggerState !== undefined
+          ? [{ alias: "state", value: opts.triggerState }]
+          : [],
+      ),
       executeOrder: vi.fn().mockResolvedValue(undefined),
     },
     zoneManager: {
@@ -149,14 +154,47 @@ describe("state-trigger-light", () => {
     inst.stop();
   });
 
-  it("ignores no-change event (previous === value)", () => {
+  it("does NOT re-fire when the trigger re-reports the same target state (gate heartbeat)", () => {
+    // Regression: gate-derived `state` events carry previous=undefined, so the
+    // recipe must track the trigger's last-seen value itself. A gate that stays
+    // "open" and re-publishes "open" must not re-light after the timer expires.
     const recipe = createRecipe();
-    const { ctx, turnOnLights, emit } = makeCtx({ isDaylight: false, lightOn: false });
+    const { ctx, turnOnLights, turnOffLights, emit } = makeCtx({ isDaylight: false, lightOn: false });
     const inst = recipe.createInstance(baseParams, ctx);
 
-    emit({ type: "equipment.data.changed", equipmentId: "trigger-1", alias: "state", value: "open", previous: "open" });
+    // Gate opens -> fires once (note: no `previous` field, like a real gate).
+    emit({ type: "equipment.data.changed", equipmentId: "trigger-1", alias: "state", value: "open" });
+    expect(turnOnLights).toHaveBeenCalledOnce();
 
+    // Off-timer expires -> lights off.
+    vi.advanceTimersByTime(5 * 60 * 1000);
+    expect(turnOffLights).toHaveBeenCalledOnce();
+
+    // Gate is still open and re-publishes "open" -> must NOT re-light.
+    emit({ type: "equipment.data.changed", equipmentId: "trigger-1", alias: "state", value: "open" });
+    expect(turnOnLights).toHaveBeenCalledOnce(); // still 1, not re-fired
+
+    inst.stop();
+  });
+
+  it("an already-open gate at startup does not fire on its first re-report", () => {
+    const recipe = createRecipe();
+    const { ctx, turnOnLights, emit } = makeCtx({ isDaylight: false, lightOn: false, triggerState: "open" });
+    const inst = recipe.createInstance(baseParams, ctx);
+
+    // Seeded state is "open"; a heartbeat re-report is not a transition.
+    emit({ type: "equipment.data.changed", equipmentId: "trigger-1", alias: "state", value: "open" });
     expect(turnOnLights).not.toHaveBeenCalled();
+    inst.stop();
+  });
+
+  it("fires on a genuine closed->open transition even when `previous` is absent", () => {
+    const recipe = createRecipe();
+    const { ctx, turnOnLights, emit } = makeCtx({ isDaylight: false, lightOn: false, triggerState: "closed" });
+    const inst = recipe.createInstance(baseParams, ctx);
+
+    emit({ type: "equipment.data.changed", equipmentId: "trigger-1", alias: "state", value: "open" });
+    expect(turnOnLights).toHaveBeenCalledOnce();
     inst.stop();
   });
 

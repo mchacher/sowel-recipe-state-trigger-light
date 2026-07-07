@@ -285,6 +285,17 @@ export function createRecipe(): RecipeDefinition {
         return root?.isDaylight !== true;
       }
 
+      /** Current `state` value of the trigger equipment, or "" if unknown. */
+      function currentTriggerState(): string {
+        try {
+          const bindings = ctx.equipmentManager.getDataBindingsWithValues(triggerId);
+          const b = bindings.find((x) => x.alias === "state");
+          return b ? asString(b.value) : "";
+        } catch {
+          return "";
+        }
+      }
+
       function clearExpiresAt(): void {
         ctx.state.delete("expiresAt");
       }
@@ -364,15 +375,24 @@ export function createRecipe(): RecipeDefinition {
 
       // --- Trigger subscription ---
 
+      // Track the trigger's last-seen state ourselves. We cannot rely on
+      // `event.previous`: gate-derived `state` events are emitted by the core
+      // with `previous: undefined`, so a gate that keeps re-publishing "open"
+      // would fire on every heartbeat (lights re-lit endlessly while open).
+      // Seed with the current state so an already-open gate at startup does not
+      // fire until it truly closes and re-opens.
+      let lastTriggerValue = currentTriggerState();
+
       const unsubTrigger = ctx.eventBus.onType("equipment.data.changed", (event) => {
         try {
           if (stopped) return;
           if (event.equipmentId !== triggerId) return;
           if (event.alias !== "state") return;
           const value = asString(event.value);
-          const previous = asString(event.previous);
-          if (value !== stateValue) return;
-          if (previous === stateValue) return; // not a transition
+          const wasTarget = lastTriggerValue === stateValue;
+          lastTriggerValue = value;
+          if (value !== stateValue) return; // not the target value
+          if (wasTarget) return; // already in the target state — a re-report, not a real transition
           fire();
         } catch (err) {
           ctx.logger.error({ err }, "Error in state trigger handler");
