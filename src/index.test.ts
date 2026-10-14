@@ -281,7 +281,8 @@ describe("state-trigger-light", () => {
     emit({ type: "equipment.data.changed", equipmentId: "trigger-1", alias: "state", value: "open", previous: "closed" });
     expect(stateMap.has("expiresAt")).toBe(true);
 
-    // Move past grace period before simulating manual off
+    // The light confirms ON, then the user switches it off past the grace period
+    emit({ type: "equipment.data.changed", equipmentId: "light-1", alias: "state", value: true, previous: false });
     vi.advanceTimersByTime(3000);
     setLightOn(false);
     emit({ type: "equipment.data.changed", equipmentId: "light-1", alias: "state", value: "OFF", previous: "ON" });
@@ -291,6 +292,51 @@ describe("state-trigger-light", () => {
     // Advance past original deadline — turn-off is NOT called by the timer
     vi.advanceTimersByTime(5 * 60 * 1000);
     expect(turnOffLights).not.toHaveBeenCalled();
+
+    inst.stop();
+  });
+
+  it("an OFF report before the lights confirm ON does not cancel the off-timer", () => {
+    // Regression (prod 2026-10-14): the core emits equipment.data.changed on
+    // every device report, unchanged values included. Right after the ON
+    // orders the cached light states are still OFF, so a stale OFF report from
+    // one light made isAnyLightOn() false, the timer was cancelled as a
+    // "manual off", and the lights then came on and stayed on all night.
+    const recipe = createRecipe();
+    const { ctx, turnOffLights, emit, stateMap, setLightOn } = makeCtx({ isDaylight: false, lightOn: false });
+    const inst = recipe.createInstance({ ...baseParams, lights: ["light-1", "light-2"] }, ctx);
+
+    emit({ type: "equipment.data.changed", equipmentId: "trigger-1", alias: "state", value: "open", previous: "closed" });
+    // The orders are in flight: the core cache still says every light is OFF.
+    setLightOn(false);
+    vi.advanceTimersByTime(8000);
+    emit({ type: "equipment.data.changed", equipmentId: "light-2", alias: "state", value: false, previous: false });
+    expect(stateMap.has("expiresAt")).toBe(true);
+
+    // Then the lights confirm ON, and the timer still turns them off.
+    setLightOn(true);
+    emit({ type: "equipment.data.changed", equipmentId: "light-1", alias: "state", value: true, previous: false });
+    emit({ type: "equipment.data.changed", equipmentId: "light-2", alias: "state", value: true, previous: false });
+    vi.advanceTimersByTime(5 * 60 * 1000);
+    expect(turnOffLights).toHaveBeenCalledOnce();
+
+    inst.stop();
+  });
+
+  it("switching off one light while another is still on keeps the off-timer", () => {
+    const recipe = createRecipe();
+    const { ctx, turnOffLights, emit, stateMap } = makeCtx({ isDaylight: false, lightOn: false });
+    const inst = recipe.createInstance({ ...baseParams, lights: ["light-1", "light-2"] }, ctx);
+
+    emit({ type: "equipment.data.changed", equipmentId: "trigger-1", alias: "state", value: "open", previous: "closed" });
+    emit({ type: "equipment.data.changed", equipmentId: "light-1", alias: "state", value: true, previous: false });
+    vi.advanceTimersByTime(3000);
+    // light-2 still on in the cache (lightIsOn stays true in the fake)
+    emit({ type: "equipment.data.changed", equipmentId: "light-1", alias: "state", value: false, previous: true });
+    expect(stateMap.has("expiresAt")).toBe(true);
+
+    vi.advanceTimersByTime(5 * 60 * 1000);
+    expect(turnOffLights).toHaveBeenCalledOnce();
 
     inst.stop();
   });

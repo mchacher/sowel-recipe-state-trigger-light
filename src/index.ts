@@ -117,6 +117,11 @@ function normalizeStringArray(value: unknown): string[] {
   return [];
 }
 
+/** Same ON test as the core's isAnyLightOn helper. */
+function isOnValue(value: unknown): boolean {
+  return value === true || String(value).toUpperCase() === "ON";
+}
+
 function asString(value: unknown): string {
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
@@ -403,14 +408,33 @@ export function createRecipe(): RecipeDefinition {
       // --- Light off detection (manual or external) ---
       // If the user turns off the lights while the timer is running,
       // cancel our off-timer so we don't hammer them again at expiry.
+      //
+      // Only a real ON -> OFF transition counts. The core emits
+      // equipment.data.changed on every device report, unchanged values
+      // included, and right after our ON orders the cached light states are
+      // still OFF: a stale OFF report in that window used to cancel the timer
+      // and leave the lights on for good. Track each light's last-seen state
+      // ourselves, seeded from the current values.
+      const lightSeenOn = new Map<string, boolean>();
+      for (const id of lightIds) {
+        try {
+          const b = ctx.equipmentManager.getDataBindingsWithValues(id).find((x) => x.alias === "state");
+          lightSeenOn.set(id, b ? isOnValue(b.value) : false);
+        } catch {
+          lightSeenOn.set(id, false);
+        }
+      }
+
       const unsubLight = ctx.eventBus.onType("equipment.data.changed", (event) => {
         try {
           if (stopped) return;
-          if (!lightIds.includes(event.equipmentId as string)) return;
+          const lightId = event.equipmentId as string;
+          if (!lightIds.includes(lightId)) return;
           if (event.alias !== "state") return;
-          const value = event.value;
-          const lightOn = value === true || value === "ON" || value === "on";
-          if (lightOn) return;
+          const lightOn = isOnValue(event.value);
+          const wasOn = lightSeenOn.get(lightId) === true;
+          lightSeenOn.set(lightId, lightOn);
+          if (lightOn || !wasOn) return; // not an ON -> OFF transition
           if (Date.now() < turnOffGraceUntil) return; // ignore our own echo
           if (offTimer && !ctx.helpers.isAnyLightOn(lightIds, ctx)) {
             cancelOffTimer();
